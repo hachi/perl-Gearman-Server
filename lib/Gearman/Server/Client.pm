@@ -583,6 +583,9 @@ A positive integer denoting the maximum possible count of workers that could be 
 
 sub TXTCMD_status {
     my Gearman::Server::Client $self = shift;
+    my $args = shift;
+
+    my $fast = defined $args && $args =~ m/fast/;
 
     my %funcs; # func -> 1  (set of all funcs to display)
 
@@ -595,24 +598,29 @@ sub TXTCMD_status {
         }
     }
 
-    my %queued_funcs;
-    my %running_funcs;
+    my $queued_funcs;
+    my $running_funcs;
 
-    foreach my $job ($self->{server}->jobs) {
-        my $func = $job->func;
-        $queued_funcs{$func}++;
-        if ($job->worker) {
-            $running_funcs{$func}++;
+    if ($fast) {
+        $queued_funcs  = $self->{server}->{queued_funcs};
+        $running_funcs = $self->{server}->{running_funcs};
+    } else {
+        foreach my $job ($self->{server}->jobs) {
+            my $func = $job->func;
+            $queued_funcs->{$func}++;
+            if ($job->worker) {
+                $running_funcs->{$func}++;
+            }
         }
     }
 
     # also include queued functions (even if there aren't workers)
     # in our list of funcs to show.
-    $funcs{$_} = 1 foreach keys %queued_funcs;
+    $funcs{$_} = 1 foreach keys %$queued_funcs;
 
     foreach my $func (sort keys %funcs) {
-        my $queued  = $queued_funcs{$func}  || 0;
-        my $running = $running_funcs{$func} || 0;
+        my $queued  = $queued_funcs->{$func}  || 0;
+        my $running = $running_funcs->{$func} || 0;
         my $can     = $can{$func}           || 0;
         $self->write( "$func\t$queued\t$running\t$can\n" );
     }

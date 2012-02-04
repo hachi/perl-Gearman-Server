@@ -46,6 +46,8 @@ use fields (
             'wakeup',        # number of workers to wake
             'wakeup_delay',  # seconds to wait before waking more workers
             'wakeup_timers', # func -> timer, timer to be canceled or adjusted when job grab/inject is called
+            'queued_funcs',  # func -> count, count of func jobs in queue (includes running jobs)
+            'running_funcs', # func -> count, count of func jobs currently running
             );
 
 our $VERSION = "1.11";
@@ -249,6 +251,8 @@ sub enqueue_job {
     my ($self, $job, $highpri) = @_;
     my $jq = ($self->{job_queue}{$job->{func}} ||= []);
 
+    $self->{queued_funcs}->{$job->{func}}++;
+
     if (defined (my $max_queue_size = $self->{max_queue}{$job->{func}})) {
         $max_queue_size--; # Subtract one, because we're about to add one more below.
         while (@$jq > $max_queue_size) {
@@ -376,7 +380,10 @@ sub note_job_finished {
     my Gearman::Server $self = shift;
     my Gearman::Server::Job $job = shift;
 
+    $self->{queued_funcs}->{$job->{func}}--;
+
     if (my Gearman::Server::Client $worker = $job->worker) {
+        $self->{running_funcs}->{$job->{func}}--;
         $worker->{jobs_done_since_sleep}++;
     }
 
@@ -426,6 +433,9 @@ sub grab_job {
     while (1) {
         $job = shift @{$self->{job_queue}{$func}};
         return $empty->() unless $job;
+
+        $self->{running_funcs}->{$job->{func}}++;
+
         return $job unless $job->require_listener;
 
         foreach my Gearman::Server::Client $c (@{$job->{listeners}}) {
